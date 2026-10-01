@@ -13,7 +13,6 @@
     touch-action: none;
   }
   #game { display: block; width: 100vw; height: 100vh; }
-
   #ui {
     position: fixed; inset: 0; pointer-events: none;
     display: flex; flex-direction: column; justify-content: space-between;
@@ -30,7 +29,6 @@
   }
   .squad-count { color: #6ee7ff; }
   .level-info { color: #ffd166; }
-
   #loading {
     position: fixed; inset: 0; background: #1a1a2e; z-index: 100;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -45,7 +43,6 @@
     width: 0%; transition: width 0.2s;
   }
   #loading .status { font-size: 14px; opacity: 0.6; }
-
   #overlay {
     position: fixed; inset: 0; display: none;
     align-items: center; justify-content: center; flex-direction: column;
@@ -60,10 +57,8 @@
     border: none; border-radius: 12px;
     background: linear-gradient(135deg, #3b82f6, #1d4ed8);
     color: #fff; box-shadow: 0 8px 24px rgba(59,130,246,0.5);
-    transition: transform 0.1s;
   }
   #overlay button:active { transform: scale(0.96); }
-
   #hint {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
     color: rgba(255,255,255,0.7); font-size: 14px;
@@ -92,7 +87,7 @@
 
 <div id="overlay">
   <h1 id="ovTitle">Zombie Squad 3D</h1>
-  <p id="ovMsg">Уничтожь зомби, собери отряд, дойди до босса</p>
+  <p id="ovMsg">Собирай солдат. Уничтожай зомби.</p>
   <button id="ovBtn">Играть</button>
 </div>
 
@@ -108,48 +103,44 @@
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 
 // ============ КОНСТАНТЫ ============
 const REPO = 'https://raw.githubusercontent.com/vikitamba/fun_game/main/';
 
 const MODELS = {
   soldier: 'Characters_Sam_SingleWeapon.gltf',
-  soldierAlt: 'Characters_Matt_SingleWeapon.gltf',
   zombie: 'Zombie_Basic.gltf',
   zombieChubby: 'Zombie_Chubby.gltf',
   zombieRibcage: 'Zombie_Ribcage.gltf',
-  street: 'Street_Straight.gltf',
   streetLights: 'StreetLights.gltf',
   containerRed: 'Container_Red.gltf',
   containerGreen: 'Container_Green.gltf',
-  cinderBlock: 'CinderBlock.gltf',
   barrel: 'Barrel.gltf'
 };
 
-// Игровые параметры (легко менять)
 const CFG = {
   roadWidth: 14,
-  playerSpeed: 0.18,
-  spawnInterval: 1.6,       // сек между спавнами зомби
-  zombiesPerSpawn: 2,
-  zombieSpeed: 0.05,
-  bulletSpeed: 0.9,
-  fireRate: 200,            // мс между выстрелами
+  playerSmooth: 0.18,
+  spawnInterval: 1.5,
+  zombiesPerSpawn: 3,
+  zombieSpeed: 3.5,       // юнитов в секунду
+  bulletSpeed: 30,
+  fireRate: 220,          // мс
   bulletDamage: 1,
   maxSquad: 50,
-  killDistance: 2.2,
-  levelDuration: 30,        // сек до босса
+  gateInterval: 8,        // сек между воротами
 };
 
 // ============ СЦЕНА ============
 const canvas = document.getElementById('game');
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1a2e);
-scene.fog = new THREE.Fog(0x1a1a2e, 40, 100);
+scene.fog = new THREE.Fog(0x1a1a2e, 30, 90);
 
-const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 300);
-camera.position.set(0, 12, 16);
-camera.lookAt(0, 2, -5);
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 300);
+camera.position.set(0, 4.5, 8);
+camera.lookAt(0, 1.5, -10);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -158,7 +149,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 // ============ СВЕТ ============
-scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
 
 const sun = new THREE.DirectionalLight(0xfff4d6, 1.1);
 sun.position.set(15, 25, 10);
@@ -187,7 +178,7 @@ ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 world.add(ground);
 
-// мост (полоса дороги по центру)
+// дорога
 const roadGeo = new THREE.PlaneGeometry(CFG.roadWidth, 500);
 const roadMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, roughness: 0.9 });
 const road = new THREE.Mesh(roadGeo, roadMat);
@@ -196,7 +187,7 @@ road.position.y = 0.02;
 road.receiveShadow = true;
 world.add(road);
 
-// бордюры (жёлто-чёрные полосы)
+// бордюры
 function makeEdge(side) {
   const edge = new THREE.Group();
   const baseX = side * (CFG.roadWidth / 2 + 0.15);
@@ -217,8 +208,8 @@ function makeEdge(side) {
 world.add(makeEdge(-1));
 world.add(makeEdge(1));
 
-// разметка
-const dashMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 });
+// разметка (пунктиры по центру) — как ты просил оставить
+const dashMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45 });
 for (let i = -25; i < 25; i++) {
   const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 2), dashMat);
   dash.rotation.x = -Math.PI / 2;
@@ -226,24 +217,20 @@ for (let i = -25; i < 25; i++) {
   world.add(dash);
 }
 
-// ============ ИГРОВЫЕ ОБЪЕКТЫ ============
+// ============ ИГРОВЫЕ ПЕРЕМЕННЫЕ ============
 const models = {};
-let player = null;
-let squad = [];         // массив объектов { model, mixer }
-let zombies = [];       // { model, mixer, hp, speed, radius }
-let bullets = [];       // { mesh, vel }
-let gates = [];         // { left, right, y }
-let decorations = [];   // фонари по бокам
-let mouseX = 0;         // позиция курсора в мировых X
+let player = null;         // { model, mixer }
+let squad = [];            // [{ model, mixer, offsetX, offsetZ }]
+let zombies = [];          // [{ model, mixer, hp, speed, radius }]
+let bullets = [];          // [{ mesh, vx, vz }]
+let gates = [];            // [{ z, passed, left:{x,w,op,val,group}, right:{...} }]
+
 let aimX = 0;
-let squadCountEl = document.getElementById('squad');
-let levelNumEl = document.getElementById('levelNum');
 let lastShot = 0;
-let spawnTimer = 0;
-let levelTimer = 0;
-let level = 1;
+let spawnTimer = 1.0;
+let gateTimer = 4;
 let running = false;
-let boss = null;
+let level = 1;
 
 // ============ ЗАГРУЗКА ============
 const loader = new GLTFLoader();
@@ -262,10 +249,10 @@ function loadOne(key) {
       statusEl.textContent = `${loaded} / ${keys.length}`;
       resolve(gltf);
     }, undefined, (err) => {
-      console.error('Ошибка загрузки:', MODELS[key], err);
+      console.error('Ошибка:', MODELS[key], err);
       loaded++;
       fillEl.style.width = (loaded / keys.length * 100) + '%';
-      statusEl.textContent = `${loaded} / ${keys.length} (ошибка: ${key})`;
+      statusEl.textContent = `${loaded} / ${keys.length} (нет: ${key})`;
       resolve(null);
     });
   });
@@ -277,14 +264,14 @@ Promise.all(keys.map(loadOne)).then(() => {
   showStartScreen();
 });
 
-// ============ ДЕКОРАЦИИ (фонари, контейнеры) ============
+// ============ ДЕКОРАЦИИ ============
 function initDecorations() {
-  // фонари по бокам
+  // фонари
   for (let i = 0; i < 20; i++) {
     const z = -i * 12 - 5;
     for (const side of [-1, 1]) {
       if (models.streetLights) {
-        const clone = models.streetLights.scene.clone(true);
+        const clone = SkeletonUtils.clone(models.streetLights.scene);
         clone.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; } });
         clone.position.set(side * (CFG.roadWidth / 2 + 1.5), 0, z);
         clone.rotation.y = side > 0 ? Math.PI : 0;
@@ -292,23 +279,21 @@ function initDecorations() {
       }
     }
   }
-
   // контейнеры
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 10; i++) {
     const key = Math.random() < 0.5 ? 'containerRed' : 'containerGreen';
     if (!models[key]) continue;
-    const clone = models[key].scene.clone(true);
-    clone.traverse(c => { if (c.isMesh) { c.castShadow = true; clone.receiveShadow = true; } });
+    const clone = SkeletonUtils.clone(models[key].scene);
+    clone.traverse(c => { if (c.isMesh) c.castShadow = true; });
     const side = Math.random() < 0.5 ? -1 : 1;
-    clone.position.set(side * (CFG.roadWidth / 2 + 3 + Math.random() * 3), 0, -i * 18 - 8);
+    clone.position.set(side * (CFG.roadWidth / 2 + 3 + Math.random() * 3), 0, -i * 20 - 10);
     clone.rotation.y = side > 0 ? Math.PI : 0;
     world.add(clone);
   }
-
-  // бочки вдоль дороги
+  // бочки
   for (let i = 0; i < 8; i++) {
     if (!models.barrel) continue;
-    const clone = models.barrel.scene.clone(true);
+    const clone = SkeletonUtils.clone(models.barrel.scene);
     clone.traverse(c => { if (c.isMesh) c.castShadow = true; });
     const side = Math.random() < 0.5 ? -1 : 1;
     clone.position.set(side * (CFG.roadWidth / 2 - 1.5), 0, -i * 25 - 15);
@@ -316,54 +301,75 @@ function initDecorations() {
   }
 }
 
-// ============ СПАВН ============
-function cloneAndPlace(src, x, z, rotY = 0, scale = 1) {
-  const c = src.clone(true);
-  c.scale.setScalar(scale);
-  c.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
-  c.position.set(x, 0, z);
-  c.rotation.y = rotY;
-  world.add(c);
-  return c;
+// ============ ХЕЛПЕРЫ ============
+function cloneSkinned(gltf, x, z, rotY = 0, scale = 1) {
+  const model = SkeletonUtils.clone(gltf.scene);
+  model.scale.setScalar(scale);
+  model.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
+  model.position.set(x, 0, z);
+  model.rotation.y = rotY;
+  world.add(model);
+  return model;
 }
 
-function createMixer(gltf, model, clipName) {
-  if (!gltf.animations || gltf.animations.length === 0) return null;
+function findClip(gltf, prefer = []) {
+  if (!gltf.animations || !gltf.animations.length) return null;
+  for (const name of prefer) {
+    const found = gltf.animations.find(a => a.name.toLowerCase().includes(name.toLowerCase()));
+    if (found) return found;
+  }
+  return gltf.animations[0];
+}
+
+function playClip(model, clip) {
+  if (!clip) return null;
   const mixer = new THREE.AnimationMixer(model);
-  let clip = gltf.animations.find(a => a.name === clipName)
-          || gltf.animations.find(a => a.name.toLowerCase().includes('run'))
-          || gltf.animations.find(a => a.name.toLowerCase().includes('walk'))
-          || gltf.animations[0];
-  if (clip) mixer.clipAction(clip).play();
+  mixer.clipAction(clip).play();
   return mixer;
 }
 
 function makeSoldier(x, z) {
   const gltf = models.soldier;
   if (!gltf) return null;
-  const model = cloneAndPlace(gltf.scene, x, z, Math.PI);
-  const mixer = createMixer(gltf, model, 'Run_Gun');
+  const model = cloneSkinned(gltf, x, z, Math.PI);
+  const clip = findClip(gltf, ['Run_Gun', 'Run', 'Walk']);
+  const mixer = playClip(model, clip);
   return { model, mixer };
 }
 
 function makeZombie(x, z, type = 'zombie') {
   const gltf = models[type];
   if (!gltf) return null;
-  const model = cloneAndPlace(gltf.scene, x, z, 0);
-  const mixer = createMixer(gltf, model, 'Walk');
-  return {
-    model, mixer,
-    hp: type === 'zombieChubby' ? 6 : type === 'zombieRibcage' ? 3 : 2,
-    maxHp: type === 'zombieChubby' ? 6 : type === 'zombieRibcage' ? 3 : 2,
-    speed: CFG.zombieSpeed * (0.7 + Math.random() * 0.8),
-    radius: 0.7
-  };
+  const model = cloneSkinned(gltf, x, z, 0);
+  const clip = findClip(gltf, ['Walk', 'Run']);
+  const mixer = playClip(model, clip);
+  const hp = type === 'zombieChubby' ? 6 : type === 'zombieRibcage' ? 3 : 2;
+  return { model, mixer, hp, maxHp: hp, speed: CFG.zombieSpeed * (0.8 + Math.random() * 0.5), radius: 0.7 };
 }
 
-// ============ ВОРОТА-МНОЖИТЕЛИ ============
-function spawnGateRow(z) {
-  const half = CFG.roadWidth / 2 - 0.5;
-  const gap = 0.6;
+// ============ ВОРОТА С ТЕКСТОМ ============
+function makeGateTexture(text, bgColor) {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, 512, 256);
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 12;
+  ctx.strokeRect(6, 6, 500, 244);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 160px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 256, 140);
+  const tex = new THREE.CanvasTexture(c);
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function spawnGateRow() {
+  const half = CFG.roadWidth / 2 - 0.3;
+  const gap = 0.4;
   const leftW = half - gap / 2;
   const leftX = -half;
   const rightX = gap / 2;
@@ -371,36 +377,38 @@ function spawnGateRow(z) {
 
   const leftOp = Math.random() < 0.5 ? 'add' : 'mul';
   const rightOp = leftOp === 'add' ? 'mul' : 'add';
-  const leftVal = leftOp === 'add' ? Math.floor(3 + Math.random() * 8) : 2;
-  const rightVal = rightOp === 'add' ? Math.floor(3 + Math.random() * 8) : 2;
+  const leftVal = leftOp === 'add' ? Math.floor(2 + Math.random() * 6) : 2;
+  const rightVal = rightOp === 'add' ? Math.floor(2 + Math.random() * 6) : 2;
 
-  const gate = { z, passed: false, left: {}, right: {} };
+  const gate = { z: -60, passed: false, left: null, right: null };
 
-  function buildGate(side, x, w, op, val) {
+  function buildGate(x, w, op, val) {
     const group = new THREE.Group();
-    const color = op === 'add' ? 0x22c55e : 0x3b82f6;
-
+    const bg = op === 'add' ? '#22a85a' : '#2563eb';
     const block = new THREE.Mesh(
-      new THREE.BoxGeometry(w, 3, 1),
-      new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.85 })
+      new THREE.BoxGeometry(w, 3, 0.3),
+      new THREE.MeshStandardMaterial({ color: op === 'add' ? 0x22c55e : 0x3b82f6 })
     );
-    block.position.set(x + w / 2, 1.5, z);
-    block.castShadow = true;
-    world.add(block);
+    block.position.set(x + w / 2, 1.5, 0);
+    group.add(block);
 
-    // текст на блоке — простой вариант, полоса сверху
-    const stripe = new THREE.Mesh(
-      new THREE.PlaneGeometry(w - 0.4, 0.7),
-      new THREE.MeshBasicMaterial({ color: 0xffffff })
+    const textMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(w - 0.3, 1.5),
+      new THREE.MeshBasicMaterial({
+        map: makeGateTexture(op === 'add' ? `+${val}` : `×${val}`, bg),
+        transparent: true
+      })
     );
-    stripe.position.set(x + w / 2, 1.9, z - 0.51);
-    world.add(stripe);
+    textMesh.position.set(x + w / 2, 1.6, 0.16);
+    group.add(textMesh);
 
-    return { mesh: block, stripe, x, w, op, val, color, z };
+    group.position.z = -60;
+    world.add(group);
+    return { group, x, w, op, val };
   }
 
-  gate.left = buildGate(-1, leftX, leftW, leftOp, leftVal);
-  gate.right = buildGate(1, rightX, rightW, rightOp, rightVal);
+  gate.left = buildGate(leftX, leftW, leftOp, leftVal);
+  gate.right = buildGate(rightX, rightW, rightOp, rightVal);
   gates.push(gate);
 }
 
@@ -433,36 +441,36 @@ function fire() {
 
   const count = Math.min(1 + Math.floor(squad.length / 8), 6);
   for (let i = 0; i < count; i++) {
-    const bulletGeo = new THREE.SphereGeometry(0.15, 6, 6);
-    const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffdd33 });
-    const b = new THREE.Mesh(bulletGeo, bulletMat);
-    const spread = (i - (count - 1) / 2) * 0.6;
-    b.position.set(player.model.position.x + spread, 1.1, player.model.position.z - 0.5);
+    const geo = new THREE.SphereGeometry(0.12, 6, 6);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffdd33 });
+    const b = new THREE.Mesh(geo, mat);
+    const spread = (i - (count - 1) / 2) * 0.4;
+    b.position.set(player.model.position.x + spread, 1.2, player.model.position.z - 0.5);
     world.add(b);
-    bullets.push({ mesh: b, vx: spread * 0.05, vz: -CFG.bulletSpeed, damage: CFG.bulletDamage });
+    bullets.push({ mesh: b, vz: -CFG.bulletSpeed, damage: CFG.bulletDamage });
   }
 }
 
 // ============ UI ============
 function updateUI() {
-  squadCountEl.textContent = squad.length + 1;
-  levelNumEl.textContent = level;
+  document.getElementById('squad').textContent = squad.length + 1;
+  document.getElementById('levelNum').textContent = level;
 }
 
 function showStartScreen() {
   const ov = document.getElementById('overlay');
   document.getElementById('ovTitle').textContent = 'Zombie Squad 3D';
-  document.getElementById('ovMsg').textContent = 'Води мышью/пальцем. Собирай солдат. Уничтожай зомби.';
+  document.getElementById('ovMsg').textContent = 'Собирай солдат. Уничтожай зомби.';
   const btn = document.getElementById('ovBtn');
   btn.textContent = 'Играть';
   btn.onclick = () => { ov.style.display = 'none'; startGame(); };
   ov.style.display = 'flex';
 }
 
-function showEndScreen(won) {
+function showEndScreen() {
   const ov = document.getElementById('overlay');
-  document.getElementById('ovTitle').textContent = won ? 'Победа!' : 'Отряд уничтожен';
-  document.getElementById('ovMsg').textContent = `Уровень ${level} · Солдат: ${squad.length}`;
+  document.getElementById('ovTitle').textContent = 'Отряд уничтожен';
+  document.getElementById('ovMsg').textContent = `Очки: ${squad.length} · Уровень ${level}`;
   const btn = document.getElementById('ovBtn');
   btn.textContent = 'Заново';
   btn.onclick = () => { ov.style.display = 'none'; startGame(); };
@@ -472,36 +480,23 @@ function showEndScreen(won) {
 // ============ СТАРТ ============
 function startGame() {
   // очистка
-  [...world.children].forEach(c => {
-    if (c.userData.temp) world.remove(c);
-  });
   squad.forEach(s => world.remove(s.model));
   zombies.forEach(z => world.remove(z.model));
   bullets.forEach(b => world.remove(b.mesh));
-  gates.forEach(g => {
-    if (g.left.mesh) world.remove(g.left.mesh);
-    if (g.left.stripe) world.remove(g.left.stripe);
-    if (g.right.mesh) world.remove(g.right.mesh);
-    if (g.right.stripe) world.remove(g.right.stripe);
-  });
+  gates.forEach(g => { world.remove(g.left.group); world.remove(g.right.group); });
   if (player) world.remove(player.model);
-  if (boss) world.remove(boss.model);
 
-  squad = [];
-  zombies = [];
-  bullets = [];
-  gates = [];
-  boss = null;
+  squad = []; zombies = []; bullets = []; gates = [];
+  spawnTimer = 1.0;
+  gateTimer = 4;
   level = 1;
-  spawnTimer = 0;
-  levelTimer = 0;
 
   // игрок
-  const soldierGltf = models.soldier;
-  if (soldierGltf) {
-    const model = cloneAndPlace(soldierGltf.scene, 0, 8, Math.PI);
-    model.userData.temp = true;
-    const mixer = createMixer(soldierGltf, model, 'Run_Gun');
+  const gltf = models.soldier;
+  if (gltf) {
+    const model = cloneSkinned(gltf, 0, 0, Math.PI);
+    const clip = findClip(gltf, ['Run_Gun', 'Run', 'Walk']);
+    const mixer = playClip(model, clip);
     player = { model, mixer };
   }
 
@@ -514,7 +509,6 @@ function setTarget(clientX) {
   const nx = (clientX / window.innerWidth) * 2 - 1;
   aimX = nx * (CFG.roadWidth / 2 - 1);
 }
-
 canvas.addEventListener('mousemove', e => setTarget(e.clientX));
 canvas.addEventListener('touchmove', e => {
   e.preventDefault();
@@ -526,23 +520,25 @@ canvas.addEventListener('touchstart', e => {
 
 // ============ ЦИКЛ ============
 const clock = new THREE.Clock();
+const playerZ = 0;
 
 function update(dt) {
   if (!running || !player) return;
 
-  // движение игрока
+  // движение игрока по X
   const targetX = THREE.MathUtils.clamp(aimX, -CFG.roadWidth / 2 + 1, CFG.roadWidth / 2 - 1);
-  player.model.position.x += (targetX - player.model.position.x) * CFG.playerSpeed;
+  player.model.position.x += (targetX - player.model.position.x) * CFG.playerSmooth;
+  player.model.position.z = playerZ;
   player.model.rotation.y = Math.PI;
 
-  // движение отряда (следуют за игроком в формации)
+  // отряд следует за игроком
   squad.forEach((s, i) => {
     const row = Math.floor(i / 4);
     const col = i % 4;
-    const offsetX = (col - 1.5) * 1.0;
-    const offsetZ = 1.5 + row * 1.2;
-    const tx = player.model.position.x + offsetX;
-    const tz = player.model.position.z + offsetZ;
+    const ox = (col - 1.5) * 0.9;
+    const oz = 1.2 + row * 1.0;
+    const tx = player.model.position.x + ox;
+    const tz = player.model.position.z + oz;
     s.model.position.x += (tx - s.model.position.x) * 0.12;
     s.model.position.z += (tz - s.model.position.z) * 0.12;
     s.model.rotation.y = Math.PI;
@@ -552,26 +548,26 @@ function update(dt) {
   spawnTimer -= dt;
   if (spawnTimer <= 0) {
     spawnTimer = CFG.spawnInterval;
-    const n = CFG.zombiesPerSpawn + Math.floor(level * 0.5);
+    const n = CFG.zombiesPerSpawn + Math.floor(level * 0.4);
     const types = ['zombie', 'zombie', 'zombieChubby', 'zombieRibcage'];
     for (let i = 0; i < n; i++) {
       const type = types[Math.floor(Math.random() * types.length)];
       const x = (Math.random() - 0.5) * (CFG.roadWidth - 3);
-      const z = -40 - Math.random() * 15;
+      const z = -60 - Math.random() * 5;
       const zom = makeZombie(x, z, type);
       if (zom) zombies.push(zom);
     }
   }
 
-  // движение зомби
+  // движение зомби — к игроку (z растёт)
   zombies.forEach(z => {
-    z.model.position.z += z.speed;
+    z.model.position.z += z.speed * dt;
     // столкновение с солдатами
     for (let i = squad.length - 1; i >= 0; i--) {
       const s = squad[i];
       const dx = s.model.position.x - z.model.position.x;
       const dz = s.model.position.z - z.model.position.z;
-      if (dx * dx + dz * dz < CFG.killDistance * CFG.killDistance) {
+      if (dx * dx + dz * dz < 1.2 * 1.2) {
         world.remove(s.model);
         squad.splice(i, 1);
         z.hp--;
@@ -581,106 +577,94 @@ function update(dt) {
     // столкновение с игроком
     const dx = player.model.position.x - z.model.position.x;
     const dz = player.model.position.z - z.model.position.z;
-    if (dx * dx + dz * dz < CFG.killDistance * CFG.killDistance) {
+    if (dx * dx + dz * dz < 1.0 * 1.0) {
       z.hp = -999;
     }
   });
 
-  // удаление мёртвых
+  // удаление мёртвых / прошедших
   zombies = zombies.filter(z => {
     if (z.hp <= 0) { world.remove(z.model); return false; }
-    if (z.model.position.z > 20) { world.remove(z.model); return false; }
+    if (z.model.position.z > 15) { world.remove(z.model); return false; }
     return true;
   });
 
-  // стрельба
-  if (zombies.length > 0) fire();
+  // стрельба если враги близко
+  const enemiesAhead = zombies.some(z => z.model.position.z < 0 && z.model.position.z > -50);
+  if (enemiesAhead) fire();
 
   // пули
   bullets.forEach(b => {
-    b.mesh.position.x += b.vx;
-    b.mesh.position.z += b.vz;
-    // столкновение
+    b.mesh.position.z += b.vz * dt;
     for (const z of zombies) {
       const dx = z.model.position.x - b.mesh.position.x;
       const dz = z.model.position.z - b.mesh.position.z;
       if (dx * dx + dz * dz < z.radius * z.radius) {
         z.hp -= b.damage;
-        b.mesh.position.z = 100; // удалить
+        b.mesh.position.z = 100;
         break;
       }
     }
   });
   bullets = bullets.filter(b => {
-    if (b.mesh.position.z < -60 || b.mesh.position.z > 50) {
+    if (b.mesh.position.z < -80 || b.mesh.position.z > 50) {
       world.remove(b.mesh); return false;
     }
     return true;
   });
 
   // ворота
-  if (levelTimer > 3 && gates.length === 0 && Math.random() < 0.005) {
-    spawnGateRow(-50);
+  gateTimer -= dt;
+  if (gateTimer <= 0 && gates.length === 0) {
+    gateTimer = CFG.gateInterval;
+    spawnGateRow();
   }
   gates.forEach(g => {
-    // движемся к игроку (все объекты движутся вперёд, у нас — дорога едет вниз)
-    g.z += 0.6;
-    g.left.mesh.position.z = g.z;
-    g.left.stripe.position.z = g.z - 0.51;
-    g.right.mesh.position.z = g.z;
-    g.right.stripe.position.z = g.z - 0.51;
+    g.z += 6 * dt; // ворота едут на игрока (быстрее зомби)
+    g.left.group.position.z = g.z;
+    g.right.group.position.z = g.z;
 
-    // проверка прохода
-    if (!g.passed && g.z > player.model.position.z - 1 && g.z < player.model.position.z + 2) {
+    if (!g.passed && g.z > playerZ - 0.8 && g.z < playerZ + 1.2) {
       const px = player.model.position.x;
-      if (px < g.left.x + g.left.w) {
-        applyGate(g.left);
-        g.passed = true;
-      } else if (px > g.right.x) {
-        applyGate(g.right);
-        g.passed = true;
+      if (px < g.left.x + g.left.w && px >= g.left.x) {
+        applyGate(g.left); g.passed = true;
+      } else if (px >= g.right.x && px < g.right.x + g.right.w) {
+        applyGate(g.right); g.passed = true;
       }
     }
   });
   gates = gates.filter(g => {
-    if (g.z > 30) {
-      world.remove(g.left.mesh); world.remove(g.left.stripe);
-      world.remove(g.right.mesh); world.remove(g.right.stripe);
+    if (g.z > 15) {
+      world.remove(g.left.group); world.remove(g.right.group);
       return false;
     }
     return true;
   });
 
-  // таймер уровня
-  levelTimer += dt;
-  if (levelTimer > CFG.levelDuration && zombies.length < 5) {
-    // уровень пройден
-    level++;
-    levelTimer = 0;
-    updateUI();
-  }
-
-  // смерть
-  if (squad.length === 0 && zombies.length === 0 && levelTimer > 1) {
-    // на самом деле смерть — если солдат 0 и врагов много
-  }
+  // проверка смерти
   if (squad.length === 0) {
-    // проверяем, что рядом нет живых
-    const closeEnemy = zombies.some(z => Math.abs(z.model.position.z - player.model.position.z) < 3);
+    const closeEnemy = zombies.some(z => Math.abs(z.model.position.z - playerZ) < 3);
     if (closeEnemy) {
       running = false;
-      setTimeout(() => showEndScreen(false), 300);
+      setTimeout(() => showEndScreen(), 300);
+      return;
     }
   }
 
-  // камера
-  camera.position.x += (player.model.position.x * 0.4 - camera.position.x) * 0.05;
-  camera.lookAt(player.model.position.x * 0.2, 2, -5);
+  // камера чуть едет за игроком по X
+  camera.position.x += (player.model.position.x * 0.25 - camera.position.x) * 0.06;
+  camera.lookAt(player.model.position.x * 0.15, 1.5, -10);
 
   // миксеры
   if (player.mixer) player.mixer.update(dt);
   squad.forEach(s => { if (s.mixer) s.mixer.update(dt); });
   zombies.forEach(z => { if (z.mixer) z.mixer.update(dt); });
+
+  // уровень растёт
+  if (Math.floor(performance.now() / 1000 / 20) + 1 > level) {
+    level = Math.floor(performance.now() / 1000 / 20) + 1;
+    updateUI();
+  }
 }
 
 function animate() {
@@ -691,7 +675,6 @@ function animate() {
 }
 animate();
 
-// ресайз
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
